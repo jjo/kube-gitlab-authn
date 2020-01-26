@@ -101,24 +101,24 @@ func main() {
 		// Get user
 		user, _, err := client.Users.CurrentUser()
 		if err != nil {
-			unauthorized(w, "[Error]: %s", err.Error())
+			unauthorized(w, "[Error] invalid token: %s", err.Error())
 			return
 		}
 
-		allGroupsPaths, err := getGroups(client, user, groupRe)
+		groups, err := getGroups(client, user, groupRe)
 		if err != nil {
 			unauthorized(w, err.Error())
 			return
 		}
 		// Set the TokenReviewStatus
-		log.Printf("[Success] login as %s, groups: %v", user.Username, allGroupsPaths)
+		log.Printf("[Success] login as %s, groups: %v", user.Username, groups)
 		w.WriteHeader(http.StatusOK)
 		trs := authentication.TokenReviewStatus{
 			Authenticated: true,
 			User: authentication.UserInfo{
 				Username: user.Username,
 				UID:      user.Username,
-				Groups:   allGroupsPaths,
+				Groups:   groups,
 			},
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
