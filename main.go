@@ -2,80 +2,123 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
-	"os"
 	"net/http"
+	"os"
+	"regexp"
+	"sort"
 
 	"github.com/xanzy/go-gitlab"
-	authentication "k8s.io/client-go/pkg/apis/authentication/v1beta1"
+
+	authentication "k8s.io/api/authentication/v1beta1"
 )
 
+type byLen []string
+
+func (a byLen) Len() int           { return len(a) }
+func (a byLen) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byLen) Less(i, j int) bool { return len(a[i]) < len(a[j]) }
+
+func unauthorized(w http.ResponseWriter, format string, args ...interface{}) {
+	log.Printf(format, args...)
+	w.WriteHeader(http.StatusBadRequest)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"apiVersion": "authentication.k8s.io/v1beta1",
+		"kind":       "TokenReview",
+		"status": authentication.TokenReviewStatus{
+			Authenticated: false,
+		},
+	})
+}
+func getGroups(client *gitlab.Client, user *gitlab.User, groupRe *regexp.Regexp) ([]string, error) {
+	// Get user's group
+	opt := &gitlab.ListGroupsOptions{
+		ListOptions: gitlab.ListOptions{
+			PerPage: 10000,
+		},
+		// MinAccessLevel: gitlab.AccessLevel(gitlab.AccessLevelValue(30)), // Developer
+	}
+	groups, _, err := client.Groups.ListGroups(opt)
+	if err != nil {
+		return nil, fmt.Errorf("[Error] ListGroups: %s", err.Error())
+	}
+
+	var groupsPaths []string
+	for _, g := range groups {
+		if groupRe == nil || groupRe.Find([]byte(g.FullPath)) != nil {
+			groupsPaths = append(groupsPaths, g.FullPath)
+		}
+	}
+
+	// If groupRe is set, then user MUST belong to at least one matching group
+	if groupRe != nil {
+		if len(groupsPaths) == 0 {
+			return nil, fmt.Errorf("[Error] User '%s' doesn't below to any matching group", user.Username)
+		}
+		sort.Sort(byLen(groupsPaths))
+	}
+
+	return groupsPaths, nil
+}
+
 func main() {
-	log.Println("Gitlab Authn Webhook:", os.Getenv("GITLAB_API_ENDPOINT"))
+	apiEp := os.Getenv("GITLAB_API_ENDPOINT")
+	if apiEp == "" {
+		log.Fatalf("GITLAB_API_ENDPOINT env var empty")
+	}
+	gitlabGroupRe := os.Getenv("GITLAB_GROUP_RE")
+	gitlabRootGroup := os.Getenv("GITLAB_ROOT_GROUP")
+	// GITLAB_GROUP_RE takes precedence
+	// else if GITLAB_ROOT_GROUP is set,
+	//   then build equivalent regexp from it
+	// If none is set, then not group matching enforcement will be done
+	var groupRe *regexp.Regexp
+	if gitlabGroupRe == "" {
+		if gitlabRootGroup != "" {
+			gitlabGroupRe = fmt.Sprintf("^(%s)(/.+)?$", gitlabRootGroup)
+		}
+	}
+	if gitlabGroupRe != "" {
+		groupRe = regexp.MustCompile(gitlabGroupRe)
+	}
+	log.Println("Gitlab Authn Webhook:", apiEp)
+	log.Printf("Using gitlabRootGroup: '%s'.", gitlabRootGroup)
+	log.Printf("Using gitlabGroupRe: '%s'.", gitlabGroupRe)
+
 	http.HandleFunc("/authenticate", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		var tr authentication.TokenReview
 		err := decoder.Decode(&tr)
 		if err != nil {
-			log.Println("[Error]", err.Error())
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"apiVersion": "authentication.k8s.io/v1beta1",
-				"kind":       "TokenReview",
-				"status": authentication.TokenReviewStatus{
-					Authenticated: false,
-				},
-			})
+			unauthorized(w, "[Error] decoding request: %s", err.Error())
 			return
 		}
 
 		client := gitlab.NewClient(nil, tr.Spec.Token)
-		client.SetBaseURL(os.Getenv("GITLAB_API_ENDPOINT"))
+		client.SetBaseURL(apiEp)
 
 		// Get user
 		user, _, err := client.Users.CurrentUser()
 		if err != nil {
-			log.Println("[Error]", err.Error())
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"apiVersion": "authentication.k8s.io/v1beta1",
-				"kind":       "TokenReview",
-				"status": authentication.TokenReviewStatus{
-					Authenticated: false,
-				},
-			})
+			unauthorized(w, "[Error]: %s", err.Error())
 			return
 		}
 
-		// Get user's group
-		groups, _, err := client.Groups.ListGroups(nil)
+		allGroupsPaths, err := getGroups(client, user, groupRe)
 		if err != nil {
-			log.Println("[Error]", err.Error())
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"apiVersion": "authentication.k8s.io/v1beta1",
-				"kind":       "TokenReview",
-				"status": authentication.TokenReviewStatus{
-					Authenticated: false,
-				},
-			})
+			unauthorized(w, err.Error())
 			return
 		}
-
-		all_group_path := make([]string, len(groups))
-    for i, g := range groups {
-        all_group_path[i] = g.Path
-    }
-
 		// Set the TokenReviewStatus
-		log.Printf("[Success] login as %s, groups: %v", user.Username, all_group_path)
+		log.Printf("[Success] login as %s, groups: %v", user.Username, allGroupsPaths)
 		w.WriteHeader(http.StatusOK)
 		trs := authentication.TokenReviewStatus{
 			Authenticated: true,
 			User: authentication.UserInfo{
 				Username: user.Username,
 				UID:      user.Username,
-				Groups: all_group_path,
+				Groups:   allGroupsPaths,
 			},
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{

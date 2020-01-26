@@ -1,11 +1,25 @@
-FROM golang:1.8-alpine as builder
+FROM golang:1.13-alpine as build
 
-ARG repo=github.comu/xuwang/kube-gitlab-authn
-RUN apk --update add git
-ADD . ${GOPATH}/src/${repo}
-RUN cd ${GOPATH}/src/${repo} && go get ./...
+ARG SRC_REPO=github.com/jjo/kube-gitlab-authn
+ARG SRC_TAG=master
+ARG ARCH=amd64
+ARG BINARY_BUILD=main
+ARG BINARY=kube-gitlab-authn
 
-FROM alpine:3.5
+RUN apk --no-cache --update add ca-certificates make git
+
+#RUN go get ${SRC_REPO}
+COPY . /go/src/${SRC_REPO}
+WORKDIR ${GOPATH}/src/${SRC_REPO}
+RUN make
+RUN cp -p _output/${BINARY_BUILD} /${BINARY}
+
+FROM alpine:3.7
 RUN apk --no-cache --update add ca-certificates
-COPY --from=builder /go/bin/kube-gitlab-authn /kube-gitlab-authn
+MAINTAINER JuanJo Ciarlante <juanjosec@gmail.com>
+
+COPY --from=build ${BINARY} /${BINARY}
+
+USER 1001
+EXPOSE 3000
 CMD ["/kube-gitlab-authn"]
