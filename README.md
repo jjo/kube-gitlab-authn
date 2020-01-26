@@ -2,9 +2,13 @@
 
 kube-gitlab-authn implements GitLab webhook token authenticator using [go-gitlab]( github.com/xanzy/go-gitlab) to allow users to use GitLab Personal Access Token to access Kubernetes cluster. It is based on the work of [kubernetes-github-authn](https://github.com/oursky/kubernetes-github-authn/), please refer to the original [README](https://github.com/oursky/kubernetes-github-authn/blob/master/README.md) for the GitHub webhook token authenticator's design and implementation.
 
+This repo is derived from the excellent work at
+https://github.com/xuwang/kube-gitlab-authn
+
 ## Features
 
 * Support user kubernetes cluster authentication using GitLab personal access token
+* Optional GitLab group membership enforcement
 * Map GitLab users to kubenenetes users
 * Map GitLab groups to Kubernetes groups
 * Support RABC based authorization
@@ -16,7 +20,14 @@ kube-gitlab-authn implements GitLab webhook token authenticator using [go-gitlab
 * Start the authenticator as DaemonSet on kube-apiserver:
 
   ```
-  kubectl create -f https://raw.githubusercontent.com/xuwang/kube-gitlab-authn/master/manifests/gitlab-authn.yaml
+  curl -O gitlab-authn.yaml https://raw.githubusercontent.com/jjo/kube-gitlab-authn/master/manifests/gitlab-authn.yaml
+  # Be sure to properly set:
+  #   - GITLAB_API_ENDPOINT
+  # If you want group membership enforcement, either:
+  #   - GITLAB_GROUP_RE
+  #   - GITLAB_ROOT_GROUP
+  vim gitlab-authn.yaml
+  kubectl create -f gitlab-authn.yaml
   ```
 
   Confirm that the authenticator is running:

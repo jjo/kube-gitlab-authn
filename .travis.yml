@@ -1,0 +1,13 @@
+language: go
+
+go: 1.13.0
+
+go_import_path: github.com/jjo/kube-gitlab-authn
+
+before_install:
+
+install:
+  - go install
+
+script:
+  - make build

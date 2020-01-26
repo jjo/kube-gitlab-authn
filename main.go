@@ -6,11 +6,19 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"sort"
 
 	"github.com/xanzy/go-gitlab"
 
 	authentication "k8s.io/api/authentication/v1beta1"
 )
+
+type byLen []string
+
+func (a byLen) Len() int           { return len(a) }
+func (a byLen) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byLen) Less(i, j int) bool { return len(a[i]) < len(a[j]) }
 
 func unauthorized(w http.ResponseWriter, format string, args ...interface{}) {
 	log.Printf(format, args...)
@@ -23,10 +31,12 @@ func unauthorized(w http.ResponseWriter, format string, args ...interface{}) {
 		},
 	})
 }
-func getGroups(client *gitlab.Client, user *gitlab.User, rootGroup string) ([]string, error) {
+func getGroups(client *gitlab.Client, user *gitlab.User, groupRe *regexp.Regexp) ([]string, error) {
 	// Get user's group
 	opt := &gitlab.ListGroupsOptions{
-		Search: &rootGroup,
+		ListOptions: gitlab.ListOptions{
+			PerPage: 10000,
+		},
 		// MinAccessLevel: gitlab.AccessLevel(gitlab.AccessLevelValue(30)), // Developer
 	}
 	groups, _, err := client.Groups.ListGroups(opt)
@@ -35,35 +45,18 @@ func getGroups(client *gitlab.Client, user *gitlab.User, rootGroup string) ([]st
 	}
 
 	var groupsPaths []string
-	// If rootGroup is not empty
-	// - User must below to rootGroup
-	// - groupsPaths will also include all user subgroups
-	if rootGroup != "" {
-		rootGroupID := -1
-		for _, g := range groups {
-			if rootGroup == g.Path {
-				rootGroupID = g.ID
-			}
-		}
-		if rootGroupID == -1 {
-			return nil, fmt.Errorf("[Error] user='%s' is not a member of rootGroup='%s'", user.Username, rootGroup)
-		}
-		opt := &gitlab.ListSubgroupsOptions{
-			// MinAccessLevel: gitlab.AccessLevel(gitlab.AccessLevelValue(30)), // Developer
-		}
-		subgroups, _, err := client.Groups.ListSubgroups(rootGroupID, opt)
-		if err != nil {
-			return nil, fmt.Errorf("[Error] ListSubgroups('%s'): %s", rootGroup, err.Error())
-		}
-		// Return groupsPaths = [rootGroup] + subgroups
-		groupsPaths = append(groupsPaths, rootGroup)
-		for _, g := range subgroups {
+	for _, g := range groups {
+		if groupRe == nil || groupRe.Find([]byte(g.FullPath)) != nil {
 			groupsPaths = append(groupsPaths, g.FullPath)
 		}
-	} else {
-		for _, g := range groups {
-			groupsPaths = append(groupsPaths, g.FullPath)
+	}
+
+	// If groupRe is set, then user MUST belong to at least one matching group
+	if groupRe != nil {
+		if len(groupsPaths) == 0 {
+			return nil, fmt.Errorf("[Error] User '%s' doesn't below to any matching group", user.Username)
 		}
+		sort.Sort(byLen(groupsPaths))
 	}
 
 	return groupsPaths, nil
@@ -74,7 +67,25 @@ func main() {
 	if apiEp == "" {
 		log.Fatalf("GITLAB_API_ENDPOINT env var empty")
 	}
-	log.Println("Gitlab Authn Webhook:", os.Getenv("GITLAB_API_ENDPOINT"))
+	gitlabGroupRe := os.Getenv("GITLAB_GROUP_RE")
+	gitlabRootGroup := os.Getenv("GITLAB_ROOT_GROUP")
+	// GITLAB_GROUP_RE takes precedence
+	// else if GITLAB_ROOT_GROUP is set,
+	//   then build equivalent regexp from it
+	// If none is set, then not group matching enforcement will be done
+	var groupRe *regexp.Regexp
+	if gitlabGroupRe == "" {
+		if gitlabRootGroup != "" {
+			gitlabGroupRe = fmt.Sprintf("^(%s)(/.+)?$", gitlabRootGroup)
+		}
+	}
+	if gitlabGroupRe != "" {
+		groupRe = regexp.MustCompile(gitlabGroupRe)
+	}
+	log.Println("Gitlab Authn Webhook:", apiEp)
+	log.Printf("Using gitlabRootGroup: '%s'.", gitlabRootGroup)
+	log.Printf("Using gitlabGroupRe: '%s'.", gitlabGroupRe)
+
 	http.HandleFunc("/authenticate", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		var tr authentication.TokenReview
@@ -85,7 +96,7 @@ func main() {
 		}
 
 		client := gitlab.NewClient(nil, tr.Spec.Token)
-		client.SetBaseURL(os.Getenv("GITLAB_API_ENDPOINT"))
+		client.SetBaseURL(apiEp)
 
 		// Get user
 		user, _, err := client.Users.CurrentUser()
@@ -94,7 +105,7 @@ func main() {
 			return
 		}
 
-		allGroupsPaths, err := getGroups(client, user, os.Getenv("GITLAB_ROOT_GROUP"))
+		allGroupsPaths, err := getGroups(client, user, groupRe)
 		if err != nil {
 			unauthorized(w, err.Error())
 			return

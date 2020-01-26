@@ -17,10 +17,17 @@ spec:
         scheduler.alpha.kubernetes.io/critical-pod: ''
     spec:
       containers:
-      - image: xuwang/kube-gitlab-authn
+      - image: xjjo/kube-gitlab-authn
         env:
           - name: GITLAB_API_ENDPOINT
-            value: https://gitlab.example.com/api/v3/
+            value: https://gitlab.com/api/v4/
+          # Simple root group:
+          # - name: GITLAB_ROOT_GROUP
+          #   value: my-root-group
+          #
+          # Arbitrary regexp (not ewill also match sub-groups e.g. my-root-group/kube-team1):
+          # - name: GITLAB_GROUP_RE
+          #   value: '^my-root-group/kube-.+$'
         name: gitlab-authn
         ports:
         - containerPort: 3000
