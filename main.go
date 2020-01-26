@@ -23,10 +23,10 @@ func unauthorized(w http.ResponseWriter, format string, args ...interface{}) {
 		},
 	})
 }
-func get_groups(client *gitlab.Client, user *gitlab.User, root_group string) ([]string, error) {
+func getGroups(client *gitlab.Client, user *gitlab.User, rootGroup string) ([]string, error) {
 	// Get user's group
 	opt := &gitlab.ListGroupsOptions{
-		Search: &root_group,
+		Search: &rootGroup,
 		// MinAccessLevel: gitlab.AccessLevel(gitlab.AccessLevelValue(30)), // Developer
 	}
 	groups, _, err := client.Groups.ListGroups(opt)
@@ -34,42 +34,46 @@ func get_groups(client *gitlab.Client, user *gitlab.User, root_group string) ([]
 		return nil, fmt.Errorf("[Error] ListGroups: %s", err.Error())
 	}
 
-	var groups_paths []string
-	// If root_group is not empty
-	// - User must below to root_group
-	// - groups_paths will also include all user subgroups
-	if root_group != "" {
-		root_group_id := -1
+	var groupsPaths []string
+	// If rootGroup is not empty
+	// - User must below to rootGroup
+	// - groupsPaths will also include all user subgroups
+	if rootGroup != "" {
+		rootGroupID := -1
 		for _, g := range groups {
-			if root_group == g.Path {
-				root_group_id = g.ID
+			if rootGroup == g.Path {
+				rootGroupID = g.ID
 			}
 		}
-		if root_group_id == -1 {
-			return nil, fmt.Errorf("[Error] user='%s' is not a member of root_group='%s'", user.Username, root_group)
+		if rootGroupID == -1 {
+			return nil, fmt.Errorf("[Error] user='%s' is not a member of rootGroup='%s'", user.Username, rootGroup)
 		}
 		opt := &gitlab.ListSubgroupsOptions{
 			// MinAccessLevel: gitlab.AccessLevel(gitlab.AccessLevelValue(30)), // Developer
 		}
-		subgroups, _, err := client.Groups.ListSubgroups(root_group_id, opt)
+		subgroups, _, err := client.Groups.ListSubgroups(rootGroupID, opt)
 		if err != nil {
-			return nil, fmt.Errorf("[Error] ListSubgroups('%s'): %s", root_group, err.Error())
+			return nil, fmt.Errorf("[Error] ListSubgroups('%s'): %s", rootGroup, err.Error())
 		}
-		// Return groups_paths = [root_group] + subgroups
-		groups_paths = append(groups_paths, root_group)
+		// Return groupsPaths = [rootGroup] + subgroups
+		groupsPaths = append(groupsPaths, rootGroup)
 		for _, g := range subgroups {
-			groups_paths = append(groups_paths, g.FullPath)
+			groupsPaths = append(groupsPaths, g.FullPath)
 		}
 	} else {
 		for _, g := range groups {
-			groups_paths = append(groups_paths, g.FullPath)
+			groupsPaths = append(groupsPaths, g.FullPath)
 		}
 	}
 
-	return groups_paths, nil
+	return groupsPaths, nil
 }
 
 func main() {
+	apiEp := os.Getenv("GITLAB_API_ENDPOINT")
+	if apiEp == "" {
+		log.Fatalf("GITLAB_API_ENDPOINT env var empty")
+	}
 	log.Println("Gitlab Authn Webhook:", os.Getenv("GITLAB_API_ENDPOINT"))
 	http.HandleFunc("/authenticate", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
@@ -90,20 +94,20 @@ func main() {
 			return
 		}
 
-		all_group_path, err := get_groups(client, user, os.Getenv("GITLAB_ROOT_GROUP"))
+		allGroupsPaths, err := getGroups(client, user, os.Getenv("GITLAB_ROOT_GROUP"))
 		if err != nil {
 			unauthorized(w, err.Error())
 			return
 		}
 		// Set the TokenReviewStatus
-		log.Printf("[Success] login as %s, groups: %v", user.Username, all_group_path)
+		log.Printf("[Success] login as %s, groups: %v", user.Username, allGroupsPaths)
 		w.WriteHeader(http.StatusOK)
 		trs := authentication.TokenReviewStatus{
 			Authenticated: true,
 			User: authentication.UserInfo{
 				Username: user.Username,
 				UID:      user.Username,
-				Groups:   all_group_path,
+				Groups:   allGroupsPaths,
 			},
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
