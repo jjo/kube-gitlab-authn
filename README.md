@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/jjo/kube-gitlab-authn.svg?branch=master)](https://travis-ci.com/jjo/kube-gitlab-authn)(https://travis-ci.com/jjo/kube-gitlab-authn)
+[![Build Status](https://travis-ci.com/jjo/kube-gitlab-authn.svg?branch=master)](https://travis-ci.com/jjo/kube-gitlab-authn)
 [![Go Report Card](https://goreportcard.com/badge/github.com/jjo/kube-gitlab-authn)](https://goreportcard.com/badge/github.com/jjo/kube-gitlab-authn)
 # Kubernetes Webhook Token Authenticator for GitLab
 
