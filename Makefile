@@ -1,4 +1,5 @@
 REPO := jjo/kube-gitlab-authn
+
 # My dockerhub user is 'xjjo'
 IMAGE_NAME := x$(REPO)
 GO_SRC_PATH := /go/src/github.com/$(REPO)
