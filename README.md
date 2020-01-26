@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/jjo/kube-gitlab-authn.svg?branch=master)](https://travis-ci.com/jjo/kube-gitlab-authn)(https://travis-ci.com/jjo/kube-gitlab-authn)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jjo/kube-gitlab-authn)](https://goreportcard.com/badge/github.com/jjo/kube-gitlab-authn)
 # Kubernetes Webhook Token Authenticator for GitLab
 
 kube-gitlab-authn implements GitLab webhook token authenticator using [go-gitlab]( github.com/xanzy/go-gitlab) to allow users to use GitLab Personal Access Token to access Kubernetes cluster. It is based on the work of [kubernetes-github-authn](https://github.com/oursky/kubernetes-github-authn/), please refer to the original [README](https://github.com/oursky/kubernetes-github-authn/blob/master/README.md) for the GitHub webhook token authenticator's design and implementation.
@@ -16,6 +18,33 @@ https://github.com/xuwang/kube-gitlab-authn
 ## How to use
 
 ### Run the authenticator as DaemonSet
+
+Note the `GITLAB_ROOT_GROUP` and `GITLAB_GROUP_RE` env vars (see
+`main.go`), a simple example:
+
+Take `jane` who is a member of `hack-org` Gitlab group, while also member of
+`dev-team`, `kube-team`, `coffee-xp` sub groups, once authenticated
+with her token, she'll get below Kubernetes groups depending on above
+env vars settings (`GITLAB_GROUP_RE` takes precedence):
+
+* `GITLAB_ROOT_GROUP="some-other-org"`
+  - **failed** auth, as she's not part of this GitLab group
+* `GITLAB_ROOT_GROUP="hack-org"`
+  - **successful** auth as `user: jane`
+  - `groups: [hack-org hack-org/coffee-xp hack-org/dev-team hack-org/kube-team]` (sorted)
+* `GITLAB_ROOT_RE="^(hack-org)(/.+)?$"`
+  - same as previous one
+* `GITLAB_GROUP_RE="^(hack-org|hackplus-org)(/.+)?$"`
+  - same as previous one, in addition also return analogous results if
+    she's also part of `hackplus-org`
+* `GITLAB_GROUP_RE="^hack-org/kube-.+$"`
+  - **successful** auth as `user: jane`
+  - `groups: [hack-org/kube-team]`
+
+Depending on the RBAC strategy, you may want to also let it return the
+root group (`hack-org`) for all your "organization" users (as all
+examples above except the last one), then further discriminate the
+RBAC bindings from the subgroup hierarchy.
 
 * Start the authenticator as DaemonSet on kube-apiserver:
 
