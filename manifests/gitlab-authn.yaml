@@ -18,6 +18,7 @@ spec:
     spec:
       containers:
       - image: xjjo/kube-gitlab-authn
+        imagePullPolicy: Always
         env:
           - name: GITLAB_API_ENDPOINT
             value: https://gitlab.com/api/v4/
