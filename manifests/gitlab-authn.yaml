@@ -1,4 +1,4 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   labels:
@@ -28,6 +28,11 @@ spec:
           # Arbitrary regexp (not ewill also match sub-groups e.g. my-root-group/kube-team1):
           # - name: GITLAB_GROUP_RE
           #   value: '^my-root-group/kube-.+$'
+          #
+          # If and-only-if GITLAB_PROJECT_RE is set, then *also* add projects membership
+          # as if there where subgroups
+          # - name: GITLAB_PROJECT_RE
+          #   value: '^my-root-group/.+course.+'
         name: gitlab-authn
         ports:
         - containerPort: 3000

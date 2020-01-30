@@ -31,7 +31,7 @@ func unauthorized(w http.ResponseWriter, format string, args ...interface{}) {
 		},
 	})
 }
-func getGroups(client *gitlab.Client, user *gitlab.User, groupRe *regexp.Regexp) ([]string, error) {
+func getGroups(client *gitlab.Client, user *gitlab.User, groupRe *regexp.Regexp, projectRe *regexp.Regexp) ([]string, error) {
 	// Get user's group
 	opt := &gitlab.ListGroupsOptions{
 		ListOptions: gitlab.ListOptions{
@@ -48,6 +48,17 @@ func getGroups(client *gitlab.Client, user *gitlab.User, groupRe *regexp.Regexp)
 	for _, g := range groups {
 		if groupRe == nil || groupRe.Find([]byte(g.FullPath)) != nil {
 			groupsPaths = append(groupsPaths, g.FullPath)
+			if projectRe != nil {
+				projects, _, err := client.Groups.ListGroupProjects(g.ID, nil)
+				if err != nil {
+					return nil, fmt.Errorf("[Error] ListGroupProjects: %s", err.Error())
+				}
+				for _, p := range projects {
+					if projectRe.Find([]byte(p.PathWithNamespace)) != nil {
+						groupsPaths = append(groupsPaths, p.PathWithNamespace)
+					}
+				}
+			}
 		}
 	}
 
@@ -68,12 +79,16 @@ func main() {
 		log.Fatalf("GITLAB_API_ENDPOINT env var empty")
 	}
 	gitlabGroupRe := os.Getenv("GITLAB_GROUP_RE")
+	gitlabProjectRe := os.Getenv("GITLAB_PROJECT_RE")
 	gitlabRootGroup := os.Getenv("GITLAB_ROOT_GROUP")
 	// GITLAB_GROUP_RE takes precedence
 	// else if GITLAB_ROOT_GROUP is set,
 	//   then build equivalent regexp from it
 	// If none is set, then not group matching enforcement will be done
+	// If (and only if) GITLAB_PROJECT_RE is set, then *also*
+	// add projects matching this regex for their full path (ie GROUP/PROJECT)
 	var groupRe *regexp.Regexp
+	var projectRe *regexp.Regexp
 	if gitlabGroupRe == "" {
 		if gitlabRootGroup != "" {
 			gitlabGroupRe = fmt.Sprintf("^(%s)(/.+)?$", gitlabRootGroup)
@@ -82,9 +97,13 @@ func main() {
 	if gitlabGroupRe != "" {
 		groupRe = regexp.MustCompile(gitlabGroupRe)
 	}
+	if gitlabProjectRe != "" {
+		projectRe = regexp.MustCompile(gitlabProjectRe)
+	}
 	log.Println("Gitlab Authn Webhook:", apiEp)
 	log.Printf("Using gitlabRootGroup: '%s'.", gitlabRootGroup)
 	log.Printf("Using gitlabGroupRe: '%s'.", gitlabGroupRe)
+	log.Printf("Using gitlabProjectRe: '%s'.", gitlabProjectRe)
 
 	http.HandleFunc("/authenticate", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
@@ -105,7 +124,7 @@ func main() {
 			return
 		}
 
-		groups, err := getGroups(client, user, groupRe)
+		groups, err := getGroups(client, user, groupRe, projectRe)
 		if err != nil {
 			unauthorized(w, err.Error())
 			return

@@ -19,6 +19,9 @@ https://github.com/xuwang/kube-gitlab-authn
 
 ### Run the authenticator as DaemonSet
 
+
+#### Groups and subgroups
+
 Note the `GITLAB_ROOT_GROUP` and `GITLAB_GROUP_RE` env vars (see
 `main.go`), a simple example:
 
@@ -46,15 +49,27 @@ root group (`hack-org`) for all your "organization" users (as all
 examples above except the last one), then further discriminate the
 RBAC bindings from the subgroup hierarchy.
 
+#### Projects
+
+You can optionally add *project* membership as if they were subgroups
+(they share the same GROUP/PATH schema afterall), but e.g. setting
+`GITLAB_PROJECT_RE="^hack-org/.+course.+"`, will *also* add e.g.
+`hack-org/devops-course` to the user, if its member of that _project_.
+
+
+#### Deploy
+
 * Start the authenticator as DaemonSet on kube-apiserver:
 
   ```
   curl -O gitlab-authn.yaml https://raw.githubusercontent.com/jjo/kube-gitlab-authn/master/manifests/gitlab-authn.yaml
   # Be sure to properly set:
   #   - GITLAB_API_ENDPOINT
-  # If you want group membership enforcement, either:
+  # If you want group membership enforcement, *either*:
   #   - GITLAB_GROUP_RE
   #   - GITLAB_ROOT_GROUP
+  # If you also want to include projects, you'll need to set:
+  #   - GITLAB_PROJECT_RE
   vim gitlab-authn.yaml
   kubectl create -f gitlab-authn.yaml
   ```
